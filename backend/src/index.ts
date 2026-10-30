@@ -1,48 +1,34 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import routes from './routes/index';
+import { loadEnv } from './config/env';
+import { createPool } from './db/pool';
+import { PgDatabase } from './db/Database';
+import { buildContainer } from './container';
+import { createApp, type Lifecycle } from './app';
 
-dotenv.config();
+const env = loadEnv();
+const db = new PgDatabase(createPool(env));
+const container = buildContainer(db, env);
+const lifecycle: Lifecycle = { shuttingDown: false };
+const app = createApp(container, env, lifecycle);
 
-const app  = express();
-const PORT = Number(process.env.PORT) || 3000;
-
-const corsOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-  : [];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    const allowed =
-      corsOrigins.length === 0 ||
-      corsOrigins.includes(origin) ||
-      origin.endsWith('.vercel.app');
-    callback(null, allowed ? origin : false);
-  },
-  credentials: true,
-}));
-
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true }));
-
-app.get('/', (_req, res) => {
-  res.json({ status: 'ok', mensaje: 'CapacitaciónPro API funcionando ✅' });
+const server = app.listen(env.port, '0.0.0.0', () => {
+  console.log(`🚀 CapacitaciónPro API v${env.appVersion} [${env.appTrack}] en http://localhost:${env.port}`);
 });
+// Más que el idle timeout típico de nginx/ALB (60s) para evitar 502 en conexiones reutilizadas.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-app.use('/api', routes);
-
-app.use((_req, res) => {
-  res.status(404).json({ mensaje: 'Ruta no encontrada' });
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
-});
-
-export default app;
+/** Apagado ordenado: deja de ser "ready", termina las peticiones en curso, cierra el pool y sale. */
+function apagar(signal: string) {
+  if (lifecycle.shuttingDown) return;
+  lifecycle.shuttingDown = true;
+  console.log(`${signal} recibido: apagando ordenadamente…`);
+  const forzar = setTimeout(() => { console.error('Apagado forzado por timeout'); process.exit(1); }, 10_000);
+  forzar.unref();
+  server.close(async () => {
+    await db.close().catch(() => undefined);
+    process.exit(0);
+  });
+  server.closeIdleConnections?.();
+}
+process.on('SIGTERM', () => apagar('SIGTERM'));
+process.on('SIGINT', () => apagar('SIGINT'));

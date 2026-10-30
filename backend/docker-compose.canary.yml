@@ -1,0 +1,67 @@
+# Demo local de despliegue canario:  docker compose -f docker-compose.canary.yml up --build
+#   gateway :8080  -> reparte 90% stable / 10% canary (CANARY_PERCENT)
+#   stable  :3001  -> directo (para métricas y comparación)
+#   canary  :3002  -> directo
+# Para un canary REAL, construye el canary desde la rama/commit nuevo:
+#   CANARY_CONTEXT=../worktree-nueva-version CANARY_VERSION=1.2.0 docker compose -f docker-compose.canary.yml up --build
+name: alumco-canary
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://postgres:postgres@db:5432/alumco
+  DB_SSL: "false"
+  JWT_SECRET: ${JWT_SECRET:-demo-secreto-largo-solo-para-local-cambialo}
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+  PORT: "3000"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: alumco }
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d alumco"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Las migraciones corren UNA vez, antes de ambas versiones (ver reglas expand/contract en docs).
+  migrate:
+    build: { context: ., args: { APP_VERSION: "${STABLE_VERSION:-1.0.0}" } }
+    command: ["node", "dist/db/migrate.js"]
+    environment: *backend-env
+    depends_on: { db: { condition: service_healthy } }
+    restart: "no"
+
+  backend-stable:
+    build: { context: ., args: { APP_VERSION: "${STABLE_VERSION:-1.0.0}" } }
+    environment:
+      <<: *backend-env
+      APP_TRACK: stable
+      APP_VERSION: ${STABLE_VERSION:-1.0.0}
+      FEATURE_FLAGS: ${STABLE_FLAGS:-ranking_v2:0}
+    ports: ["3001:3000"]
+    depends_on: { migrate: { condition: service_completed_successfully } }
+
+  backend-canary:
+    build: { context: "${CANARY_CONTEXT:-.}", args: { APP_VERSION: "${CANARY_VERSION:-1.1.0-canary}" } }
+    environment:
+      <<: *backend-env
+      APP_TRACK: canary
+      APP_VERSION: ${CANARY_VERSION:-1.1.0-canary}
+      FEATURE_FLAGS: ${CANARY_FLAGS:-ranking_v2:100}
+    ports: ["3002:3000"]
+    depends_on: { migrate: { condition: service_completed_successfully } }
+
+  gateway:
+    build: ./deploy/gateway
+    environment:
+      CANARY_PERCENT: ${CANARY_PERCENT:-10}
+      CANARY_FORCE_TOKEN: ${CANARY_FORCE_TOKEN:-cambia-este-token}
+    ports: ["8080:80"]
+    depends_on:
+      backend-stable: { condition: service_healthy }
+      backend-canary: { condition: service_healthy }
+
+volumes:
+  dbdata:

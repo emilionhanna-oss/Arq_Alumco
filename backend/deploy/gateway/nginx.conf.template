@@ -1,0 +1,60 @@
+# Gateway canary. Se renderiza con envsubst al arrancar (imagen oficial de nginx: /etc/nginx/templates).
+# Variables: STABLE_HOST STABLE_PORT CANARY_HOST CANARY_PORT CANARY_PERCENT CANARY_FORCE_TOKEN
+
+upstream stable { server ${STABLE_HOST}:${STABLE_PORT}; keepalive 16; }
+upstream canary { server ${CANARY_HOST}:${CANARY_PORT}; keepalive 16; }
+
+# Reparto por cliente (sticky): el mismo cliente cae siempre en el mismo pool mientras no cambie el porcentaje.
+# Subir CANARY_PERCENT de 10 a 25 solo AGREGA clientes al canary, no reasigna a los que ya estaban.
+split_clients "${http_x_forwarded_for}${remote_addr}${http_user_agent}" $split_pool {
+    ${CANARY_PERCENT}%  canary;
+    *                   stable;
+}
+
+# Forzado manual para pruebas/QA:  X-Canary: <CANARY_FORCE_TOKEN>:canary   |   <CANARY_FORCE_TOKEN>:stable
+map $http_x_canary $forced_pool {
+    default                          "";
+    "${CANARY_FORCE_TOKEN}:canary"   canary;
+    "${CANARY_FORCE_TOKEN}:stable"   stable;
+}
+map $forced_pool $pool {
+    ""       $split_pool;
+    default  $forced_pool;
+}
+
+server {
+    listen 80;
+
+    # Las métricas se leen directamente de cada instancia (no a través del reparto).
+    location = /metrics { return 404; }
+    location = /gateway/health { default_type text/plain; return 200 "ok\n"; }
+
+    location / {
+        proxy_pass http://$pool;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 30s;
+        add_header X-Served-By $pool always;
+
+        # Red de seguridad: si la instancia responde 502/503/504 (caída, breaker abierto), las lecturas se
+        # reintentan en stable. Las escrituras (POST/PUT/DELETE) NO se reintentan para no duplicar efectos.
+        proxy_intercept_errors on;
+        error_page 502 503 504 = @fallback_stable;
+    }
+
+    location @fallback_stable {
+        if ($request_method !~ ^(GET|HEAD)$) { return 503; }
+        proxy_pass http://stable;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        add_header X-Served-By "stable-fallback" always;
+    }
+}

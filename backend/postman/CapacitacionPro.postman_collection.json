@@ -1,0 +1,1831 @@
+{
+  "info": {
+    "name": "CapacitaciónPro API — demostración",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Ejecutar de arriba hacia abajo (Runner o `npm run demo:newman`). Carpeta 0 muestra la lista de endpoints. Cada request trae pruebas automáticas."
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "gateway_url",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "stable_url",
+      "value": "http://localhost:3001"
+    },
+    {
+      "key": "canary_url",
+      "value": "http://localhost:3002"
+    },
+    {
+      "key": "canary_token",
+      "value": "cambia-este-token"
+    },
+    {
+      "key": "admin_email",
+      "value": "admin@alumco.cl"
+    },
+    {
+      "key": "profesor_email",
+      "value": "profesor@alumco.cl"
+    },
+    {
+      "key": "demo_password",
+      "value": "Demo1234!"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Sistema y lista de endpoints",
+      "description": "Lista de endpoints, salud y métricas. Empieza la demo por aquí.",
+      "item": [
+        {
+          "name": "Lista de endpoints del sistema",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api",
+            "description": "Devuelve TODOS los endpoints (método, ruta, acceso, descripción). Se genera desde la misma tabla de rutas que registra Express."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('Lista 25 endpoints de negocio', () => pm.expect(b.endpoints.length).to.eql(25));",
+                  "pm.test('Incluye endpoints de sistema (health, metrics)', () => pm.expect(b.sistema.length).to.eql(5));",
+                  "b.endpoints.forEach(e => console.log(e.metodo.padEnd(7) + e.ruta.padEnd(42) + e.acceso));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bienvenida",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Health (readiness): versión, track, BD y circuit breaker",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('BD arriba y breaker cerrado', () => { pm.expect(b.db).to.eql('up'); pm.expect(b.circuitBreaker).to.eql('closed'); });",
+                  "pm.test('Expone version y track', () => { pm.expect(b.version).to.be.a('string'); pm.expect(['stable','canary']).to.include(b.track); });",
+                  "pm.test('Header X-App-Version presente', () => pm.expect(pm.response.headers.get('X-App-Version')).to.be.ok);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Health (liveness)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health/live"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Métricas Prometheus",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/metrics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Contiene métricas con version/track', () => { const t = pm.response.text(); pm.expect(t).to.include('alumco_build_info'); pm.expect(t).to.include('alumco_http_requests_total'); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Autenticación",
+      "description": "",
+      "item": [
+        {
+          "name": "Registrar colaborador (queda pendiente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombreCompleto\": \"Carla Demo\",\n  \"email\": \"{{nuevo_email}}\",\n  \"password\": \"Demo1234!\",\n  \"confirmPassword\": \"Demo1234!\",\n  \"genero\": \"femenino\",\n  \"sede\": \"Hualpen (Region del Biobio)\",\n  \"rut\": \"{{nuevo_rut}}\",\n  \"cargo\": \"TENS\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const n = Date.now();",
+                  "pm.collectionVariables.set('nuevo_email', `demo.${n}@alumco.cl`);",
+                  "pm.collectionVariables.set('nuevo_rut', String(10000000 + (n % 80000000)) + '-K');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login de la cuenta pendiente → 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"email\": \"{{nuevo_email}}\", \"password\": \"Demo1234!\" }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('Mensaje de cuenta pendiente', () => pm.expect(pm.response.json().mensaje).to.include('pendiente'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"email\": \"{{admin_email}}\", \"password\": \"{{demo_password}}\" }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json(); pm.collectionVariables.set('token_admin', b.token);",
+                  "pm.test('Rol admin', () => pm.expect(b.usuario.rol).to.include('admin'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login profesor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"email\": \"{{profesor_email}}\", \"password\": \"{{demo_password}}\" }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('token_profesor', pm.response.json().token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar sedes (pública)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/auth/sedes"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Hay sedes', () => pm.expect(pm.response.json().length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Usuario autenticado (me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/auth/me",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_admin}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Usuarios (el admin aprueba la cuenta)",
+      "description": "",
+      "item": [
+        {
+          "name": "Listar usuarios (admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/usuarios",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_admin}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const u = pm.response.json().find(x => x.email === pm.collectionVariables.get('nuevo_email'));",
+                  "pm.test('Aparece la cuenta nueva como pendiente', () => { pm.expect(u).to.be.ok; pm.expect(u.estado).to.eql('pendiente'); });",
+                  "pm.collectionVariables.set('nuevo_id', u.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aprobar cuenta (admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/usuarios/{{nuevo_id}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_admin}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Cuenta activa', () => pm.expect(pm.response.json().usuario.estado).to.eql('activo'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login del alumno aprobado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"email\": \"{{nuevo_email}}\", \"password\": \"Demo1234!\" }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json(); pm.collectionVariables.set('token_alumno', b.token); pm.collectionVariables.set('alumno_id', b.usuario.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detalle de usuario (admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/usuarios/{{alumno_id}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_admin}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Perfil propio",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/usuarios/perfil",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Actualizar perfil propio",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/usuarios/perfil",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"firmaTexto\": \"Carla Demo\" }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Cursos (Repository + Service)",
+      "description": "",
+      "item": [
+        {
+          "name": "Crear curso con quiz (profesor)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/cursos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titulo\": \"Seguridad en ELEAM\",\n  \"descripcion\": \"Curso de demostración\",\n  \"modulos\": [\n    {\n      \"tituloModulo\": \"Evaluación de seguridad\",\n      \"tipo\": \"quiz\",\n      \"contenido\": [\n        {\n          \"pregunta\": \"¿Cuánto es 2+2?\",\n          \"opciones\": [\n            {\n              \"texto\": \"3\",\n              \"correcta\": false\n            },\n            {\n              \"texto\": \"4\",\n              \"correcta\": true\n            }\n          ]\n        },\n        {\n          \"pregunta\": \"¿Capital de Chile?\",\n          \"opciones\": [\n            {\n              \"texto\": \"Santiago\",\n              \"correcta\": true\n            },\n            {\n              \"texto\": \"Lima\",\n              \"correcta\": false\n            }\n          ]\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_profesor}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const c = pm.response.json().curso; pm.collectionVariables.set('curso_id', c.id); pm.collectionVariables.set('modulo_id', c.modulos[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Publicar curso (profesor)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/cursos/{{curso_id}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"publicado\": true }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_profesor}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Publicado', () => pm.expect(pm.response.json().curso.publicado).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Asignar alumno al curso",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/cursos/{{curso_id}}/alumnos",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"alumnosInscritos\": [{{alumno_id}}] }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_profesor}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alumno: listar sus cursos (sin respuestas correctas)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/cursos",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Ve el curso', () => pm.expect(pm.response.json().length).to.be.above(0));",
+                  "pm.test('NO recibe \"correcta\"', () => pm.expect(pm.response.text()).to.not.include('correcta'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alumno: detalle del curso (sin respuestas correctas)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/cursos/{{curso_id}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('NO recibe \"correcta\"', () => pm.expect(pm.response.text()).to.not.include('correcta'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Profesor: detalle del curso (sí ve las respuestas)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/cursos/{{curso_id}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_profesor}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Staff sí ve \"correcta\"', () => pm.expect(pm.response.text()).to.include('\"correcta\":true'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Examen (Observer: aprobar dispara puntos e insignia)",
+      "description": "",
+      "item": [
+        {
+          "name": "Iniciar intento 1",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/quiz/{{modulo_id}}/iniciar",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('intento_id', pm.response.json().intentoId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Enviar respuestas INCORRECTAS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/quiz/{{modulo_id}}/submit",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"intentoId\": {{intento_id}}, \"respuestas\": [0, 1], \"tiempoSegundos\": 20 }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('Reprueba y se bloquea 24 h', () => { pm.expect(b.aprobado).to.eql(false); pm.expect(b.puntaje).to.eql(0); pm.expect(b.desbloqueoEn).to.be.ok; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reenviar el mismo intento → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/quiz/{{modulo_id}}/submit",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"intentoId\": {{intento_id}}, \"respuestas\": [1, 0] }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Iniciar intento 2",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/quiz/{{modulo_id}}/iniciar",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Es el intento 2', () => pm.expect(pm.response.json().intentoNumero).to.eql(2));",
+                  "pm.collectionVariables.set('intento_id_2', pm.response.json().intentoId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Enviar respuestas CORRECTAS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/quiz/{{modulo_id}}/submit",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"intentoId\": {{intento_id_2}}, \"respuestas\": [1, 0], \"tiempoSegundos\": 35 }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('Aprueba con 100', () => { pm.expect(b.aprobado).to.eql(true); pm.expect(b.puntaje).to.eql(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Estado del examen",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/quiz/{{modulo_id}}/estado",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('2 intentos, aprobado', () => { pm.expect(b.intentosRealizados).to.eql(2); pm.expect(b.aprobado).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Gamificación",
+      "description": "",
+      "item": [
+        {
+          "name": "Registrar acceso diario (racha)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/gamificacion/acceso",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Primer acceso inicia la racha en 1', () => pm.expect(pm.response.json().rachaDias).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Perfil de gamificación",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/gamificacion/perfil",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('100 puntos y nivel Principiante (Strategy)', () => { pm.expect(b.puntos).to.eql(100); pm.expect(b.nivel).to.eql('Principiante'); });",
+                  "pm.test('Insignia del quiz', () => pm.expect(b.insignias).to.include('quiz_aprobado_' + pm.collectionVariables.get('modulo_id')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ranking",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/gamificacion/ranking",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Header X-Ranking-Version (canary por feature flag)', () => pm.expect(['v1','v2']).to.include(pm.response.headers.get('X-Ranking-Version')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Insignias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/gamificacion/insignias",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Certificados",
+      "description": "",
+      "item": [
+        {
+          "name": "Generar certificado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/certificados/generar/{{curso_id}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('cert_hash', pm.response.json().certificado.hash);",
+                  "pm.test('Hash aleatorio de 64 hex', () => pm.expect(pm.collectionVariables.get('cert_hash')).to.match(/^[0-9a-f]{64}$/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Generar de nuevo (idempotente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/certificados/generar/{{curso_id}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Perfil: +200 puntos y el nivel se recalcula",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/gamificacion/perfil",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('300 puntos → Colaborador', () => { pm.expect(b.puntos).to.eql(300); pm.expect(b.nivel).to.eql('Colaborador'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verificar certificado (público, RUT enmascarado)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/certificados/verificar/{{cert_hash}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('Válido y RUT enmascarado', () => { pm.expect(b.valido).to.eql(true); pm.expect(b.rut).to.include('*'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mis certificados",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/certificados/mis-certificados",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Tiene 1', () => pm.expect(pm.response.json().length).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Seguridad (casos negativos)",
+      "description": "",
+      "item": [
+        {
+          "name": "Sin token → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/cursos"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Credenciales incorrectas → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"email\": \"{{admin_email}}\", \"password\": \"incorrecta\" }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alumno intenta listar usuarios → 403",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/usuarios",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Profesor intenta eliminar curso → 403 (solo admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{base_url}}/api/cursos/{{curso_id}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_profesor}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "IDOR: otro usuario intenta enviar mi intento → 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/quiz/{{modulo_id}}/submit",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"intentoId\": {{intento_id_2}}, \"respuestas\": [1, 0] }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_profesor}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Id inválido → 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/cursos/abc",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_admin}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JSON inválido → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{malo",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "8. Canary (a través del gateway nginx)",
+      "description": "Requiere el gateway levantado (docker compose -f docker-compose.canary.yml up). Variables: gateway_url, stable_url, canary_url, canary_token.",
+      "item": [
+        {
+          "name": "Tráfico normal: el gateway decide (≈90% stable / 10% canary)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{gateway_url}}/api/auth/sedes",
+            "description": "Ejecútalo varias veces (Runner) y se ve el reparto en el header X-Served-By."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const pool = pm.response.headers.get('X-Served-By');",
+                  "pm.test('Indica qué pool respondió: ' + pool, () => pm.expect(['stable','canary','stable-fallback']).to.include(pool));",
+                  "console.log('Versión que respondió:', pm.response.headers.get('X-App-Version'), '(' + pool + ')');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forzar CANARY (QA)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Canary",
+                "value": "{{canary_token}}:canary"
+              }
+            ],
+            "url": "{{gateway_url}}/api/auth/sedes"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Respondió el canary', () => { pm.expect(pm.response.headers.get('X-Served-By')).to.eql('canary'); pm.expect(pm.response.headers.get('X-App-Track')).to.eql('canary'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forzar STABLE (QA)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Canary",
+                "value": "{{canary_token}}:stable"
+              }
+            ],
+            "url": "{{gateway_url}}/api/auth/sedes"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Respondió stable', () => { pm.expect(pm.response.headers.get('X-Served-By')).to.eql('stable'); pm.expect(pm.response.headers.get('X-App-Track')).to.eql('stable'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ranking en CANARY → feature flag ranking_v2 activo",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Canary",
+                "value": "{{canary_token}}:canary"
+              }
+            ],
+            "url": "{{gateway_url}}/api/gamificacion/ranking",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('ranking v2', () => pm.expect(pm.response.headers.get('X-Ranking-Version')).to.eql('v2'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ranking en STABLE → ranking v1",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Canary",
+                "value": "{{canary_token}}:stable"
+              }
+            ],
+            "url": "{{gateway_url}}/api/gamificacion/ranking",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token_alumno}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('ranking v1', () => pm.expect(pm.response.headers.get('X-Ranking-Version')).to.eql('v1'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forzar con un token incorrecto NO funciona",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Canary",
+                "value": "token-falso:canary"
+              }
+            ],
+            "url": "{{gateway_url}}/api/auth/sedes"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Cae por el reparto normal, no forzado', () => pm.expect(pm.response.headers.get('X-Served-By')).to.not.eql(undefined));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Las métricas NO se exponen por el gateway",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{gateway_url}}/metrics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Métricas del STABLE (directo)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{stable_url}}/metrics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('track=stable', () => pm.expect(pm.response.text()).to.include('track=\"stable\"'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Métricas del CANARY (directo)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{canary_url}}/metrics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('track=canary', () => pm.expect(pm.response.text()).to.include('track=\"canary\"'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

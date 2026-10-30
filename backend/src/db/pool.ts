@@ -1,14 +1,13 @@
 import { Pool } from 'pg';
-import dotenv from 'dotenv';
-dotenv.config();
+import type { Env } from '../config/env';
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-  max: 10,
-});
-
-pool.on('connect', () => console.log('✅ Conectado a PostgreSQL'));
-pool.on('error', (err) => console.error('❌ Error PostgreSQL:', err.message));
-
-export default pool;
+export function createPool(env: Pick<Env, 'databaseUrl' | 'dbSsl'>): Pool {
+  const pool = new Pool({
+    connectionString: env.databaseUrl,
+    ssl: env.dbSsl ? { rejectUnauthorized: false } : false,
+    max: 10,
+    connectionTimeoutMillis: 5000,
+  });
+  pool.on('error', err => console.error('❌ Error PostgreSQL:', err.message));
+  return pool;
+}
